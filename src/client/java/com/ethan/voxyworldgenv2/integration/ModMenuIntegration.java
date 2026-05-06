@@ -25,12 +25,6 @@ public class ModMenuIntegration implements ModMenuApi {
                 .setSaveConsumer(newValue -> Config.DATA.enabled = newValue)
                 .build());
 
-            general.addEntry(entryBuilder.startBooleanToggle(Component.translatable("config.voxyworldgenv2.option.f3_stats"), Config.DATA.showF3MenuStats)
-                .setDefaultValue(true)
-                .setTooltip(Component.translatable("config.voxyworldgenv2.option.f3_stats.tooltip"))
-                .setSaveConsumer(newValue -> Config.DATA.showF3MenuStats = newValue)
-                .build());
-
             general.addEntry(entryBuilder.startIntSlider(Component.translatable("config.voxyworldgenv2.option.radius"), Config.DATA.generationRadius, 1, 512)
                 .setDefaultValue(128)
                 .setTooltip(Component.translatable("config.voxyworldgenv2.option.radius.tooltip"))

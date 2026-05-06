@@ -28,6 +28,7 @@ public final class DebugRenderer implements DebugScreenEntry {
 
     @Override
     public void display(DebugScreenDisplayer displayer, Level level, LevelChunk chunk, LevelChunk chunk2) {
+        if (level == null) return;
         Minecraft mc = Minecraft.getInstance();
         ChunkGenerationManager manager = ChunkGenerationManager.getInstance();
         GenerationStats stats = manager.getStats();

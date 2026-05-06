@@ -12,7 +12,8 @@
     "BlockUpdateMixin"
   ],
   "client": [
-    "DebugScreenEntriesMixin"
+    "DebugScreenEntriesMixin",
+    "DebugScreenEntryListMixin"
   ],
   "injectors": {
     "defaultRequire": 1

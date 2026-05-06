@@ -3,8 +3,6 @@
     "config.voxyworldgenv2.category.general": "General Settings",
     "config.voxyworldgenv2.option.enabled": "Mod Enabled",
     "config.voxyworldgenv2.option.enabled.tooltip": "Completely enable or disable the mod's generation logic.",
-    "config.voxyworldgenv2.option.f3_stats": "Show F3 Menu Stats",
-    "config.voxyworldgenv2.option.f3_stats.tooltip": "Show generation statistics in the F3 debug menu.",
     "config.voxyworldgenv2.option.radius": "Generation Radius",
     "config.voxyworldgenv2.option.radius.tooltip": "The radius (in chunks) around players to generate.",
     "config.voxyworldgenv2.option.update_interval": "Scanner Interval (Ticks)",
