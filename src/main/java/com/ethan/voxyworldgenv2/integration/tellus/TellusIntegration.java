@@ -98,7 +98,7 @@ public final class TellusIntegration {
             if (biome.is(Biomes.DESERT)) return new Palette(Blocks.SAND.defaultBlockState(), Blocks.SANDSTONE.defaultBlockState());
             if (biome.is(BiomeTags.IS_BEACH)) return new Palette(Blocks.SAND.defaultBlockState(), Blocks.SAND.defaultBlockState());
             if (biome.is(BiomeTags.IS_BADLANDS)) return new Palette(Blocks.RED_SAND.defaultBlockState(), Blocks.TERRACOTTA.defaultBlockState());
-            if (biome.is(Biomes.MANGROVE_SWAMP)) return new Palette(Blocks.MUD.defaultBlockState(), Blocks.MUD.defaultBlockState());
+            // Biomes.MANGROVE_SWAMP / Blocks.MUD do not exist in MC 1.18.2; omitted.
             if (biome.is(Biomes.SNOWY_PLAINS) || biome.is(Biomes.SNOWY_TAIGA)) return new Palette(Blocks.SNOW_BLOCK.defaultBlockState(), Blocks.DIRT.defaultBlockState());
         }
         return new Palette(Blocks.GRASS_BLOCK.defaultBlockState(), Blocks.DIRT.defaultBlockState());
@@ -121,7 +121,7 @@ public final class TellusIntegration {
             if (mapper == null) return;
 
             BiomeSource biomeSource = level.getChunkSource().getGenerator().getBiomeSource();
-            Climate.Sampler sampler = level.getChunkSource().randomState().sampler();
+            Climate.Sampler sampler = level.getChunkSource().getGenerator().climateSampler();
             
             int minX = pos.getMinBlockX();
             int minZ = pos.getMinBlockZ();
@@ -267,7 +267,7 @@ public final class TellusIntegration {
             TellusWorldFeatures.placeUnderwaterVegetation(pos, data, mapper, propBlocks, biomeIds, hasWaters);
 
             long brightAir = VoxyIngester.composeId(0, 0, 15);
-            int minSY = level.getMinSectionY();
+            int minSY = (level.getMinBuildHeight() >> 4);
             int sCount = level.getSectionsCount();
 
             int maxHV = -64;

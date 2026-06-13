@@ -126,7 +126,7 @@ public final class VoxyIntegration {
             net.minecraft.world.level.chunk.LevelChunkSection[] sections = chunk.getSections();
             int cx = chunk.getPos().x;
             int cz = chunk.getPos().z;
-            int minY = chunk.getMinSectionY();
+            int minY = (chunk.getMinBuildHeight() >> 4);
             
             // get worldid once per chunk
             Object worldId = worldIdentifierOfMethod.invoke(chunk.getLevel());

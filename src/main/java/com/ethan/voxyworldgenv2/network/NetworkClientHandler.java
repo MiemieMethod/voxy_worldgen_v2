@@ -5,42 +5,54 @@ import com.ethan.voxyworldgenv2.integration.VoxyIntegration;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.Registry;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.chunk.DataLayer;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.PalettedContainer;
-import net.minecraft.world.level.chunk.PalettedContainerFactory;
-import net.minecraft.world.level.biome.Biome;
-import net.minecraft.core.Holder;
 
+import io.netty.buffer.Unpooled;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Client-side networking. Ported from the MC 1.20.5+ CustomPacketPayload API to the MC 1.18.2 channel
+ * + FriendlyByteBuf API. Receivers are registered by channel id; the payload is decoded inline.
+ */
 public class NetworkClientHandler {
-    
+
     public static void init() {
-        ClientPlayNetworking.registerGlobalReceiver(NetworkHandler.HandshakePayload.TYPE, (payload, context) -> {
-            boolean serverHasMod = payload.serverHasMod();
-            context.client().execute(() -> {
-                NetworkState.setServerConnected(serverHasMod);
-            });
+        ClientPlayNetworking.registerGlobalReceiver(NetworkHandler.HANDSHAKE_ID, (client, handler, buf, responseSender) -> {
+            boolean serverHasMod = buf.readBoolean();
+            client.execute(() -> NetworkState.setServerConnected(serverHasMod));
         });
 
-        ClientPlayNetworking.registerGlobalReceiver(NetworkHandler.LODDataPayload.TYPE, (payload, context) -> {
-            context.client().execute(() -> {
-                handleLODData(payload);
-            });
+        ClientPlayNetworking.registerGlobalReceiver(NetworkHandler.LOD_DATA_ID, (client, handler, buf, responseSender) -> {
+            // Decode on the network thread (buf is only valid here), then ingest on the client thread.
+            String dimStr = buf.readUtf();
+            ChunkPos pos = buf.readChunkPos();
+            int minY = buf.readInt();
+            List<NetworkHandler.SectionData> sections = buf.readCollection(ArrayList::new, NetworkHandler.SectionData::read);
+            ResourceKey<Level> dimension = ResourceKey.create(Registry.DIMENSION_REGISTRY, ResourceLocation.tryParse(dimStr));
+            client.execute(() -> handleLODData(dimension, pos, minY, sections));
         });
     }
 
-    @SuppressWarnings("unchecked")
-    private static void handleLODData(NetworkHandler.LODDataPayload payload) {
+    private static void handleLODData(ResourceKey<Level> dimension, ChunkPos pos, int minY, List<NetworkHandler.SectionData> sections) {
         ClientLevel level = Minecraft.getInstance().level;
         if (level == null) return;
 
         // discard LOD data from a different dimension to prevent cross-dimension rendering artifacts (issue #43)
-        if (!level.dimension().equals(payload.dimension())) return;
-        
+        if (!level.dimension().equals(dimension)) return;
+
         // calculate approximate payload size
         long bytes = 0;
-        for (NetworkHandler.LODDataPayload.SectionData sd : payload.sections()) {
+        for (NetworkHandler.SectionData sd : sections) {
             bytes += sd.states().length;
             bytes += sd.biomes().length;
             if (sd.blockLight() != null) bytes += sd.blockLight().length;
@@ -48,35 +60,25 @@ public class NetworkClientHandler {
         }
         NetworkState.incrementReceived(bytes);
 
-        for (NetworkHandler.LODDataPayload.SectionData sectionData : payload.sections()) {
-            io.netty.buffer.ByteBuf statesRaw = io.netty.buffer.Unpooled.wrappedBuffer(sectionData.states());
-            io.netty.buffer.ByteBuf biomesRaw = io.netty.buffer.Unpooled.wrappedBuffer(sectionData.biomes());
+        Registry<Biome> biomeRegistry = level.registryAccess().registryOrThrow(Registry.BIOME_REGISTRY);
+
+        for (NetworkHandler.SectionData sectionData : sections) {
+            io.netty.buffer.ByteBuf statesRaw = Unpooled.wrappedBuffer(sectionData.states());
+            io.netty.buffer.ByteBuf biomesRaw = Unpooled.wrappedBuffer(sectionData.biomes());
             try {
-                // recreate section using PalettedContainerFactory
-                PalettedContainerFactory factory = PalettedContainerFactory.create(level.registryAccess());
-                LevelChunkSection section = new LevelChunkSection(factory);
-                
-                // we need to read the states and biomes back using RegistryFriendlyByteBuf for palette consistency
-                net.minecraft.network.RegistryFriendlyByteBuf statesBuf = new net.minecraft.network.RegistryFriendlyByteBuf(
-                    new net.minecraft.network.FriendlyByteBuf(statesRaw), 
-                    level.registryAccess()
-                );
-                ((PalettedContainer<BlockState>) section.getStates()).read(statesBuf);
-                
-                net.minecraft.network.RegistryFriendlyByteBuf biomesBuf = new net.minecraft.network.RegistryFriendlyByteBuf(
-                    new net.minecraft.network.FriendlyByteBuf(biomesRaw), 
-                    level.registryAccess()
-                );
-                ((PalettedContainer<Holder<Biome>>) section.getBiomes()).read(biomesBuf);
-                
-                // ingest into voxy
+                // recreate the section (MC 1.18.2 ctor takes the section Y and biome registry)
+                LevelChunkSection section = new LevelChunkSection(sectionData.y(), biomeRegistry);
+
+                section.getStates().read(new FriendlyByteBuf(statesRaw));
+                section.getBiomes().read(new FriendlyByteBuf(biomesRaw));
+
                 DataLayer bl = sectionData.blockLight() != null ? new DataLayer(sectionData.blockLight()) : null;
                 DataLayer sl = sectionData.skyLight() != null ? new DataLayer(sectionData.skyLight()) : null;
-                
-                VoxyIntegration.rawIngest(level, section, payload.pos().x, sectionData.y(), payload.pos().z, bl, sl);
-                
+
+                VoxyIntegration.rawIngest(level, section, pos.x, sectionData.y(), pos.z, bl, sl);
+
             } catch (Exception e) {
-                VoxyWorldGenV2.LOGGER.error("failed to handle LOD data for chunk " + payload.pos(), e);
+                VoxyWorldGenV2.LOGGER.error("failed to handle LOD data for chunk " + pos, e);
             } finally {
                 statesRaw.release();
                 biomesRaw.release();

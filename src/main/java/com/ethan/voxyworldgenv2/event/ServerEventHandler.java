@@ -44,7 +44,7 @@ public final class ServerEventHandler {
         // also handles syncing pre-generated chunks that couldn't be sent at generation
         // time because the player wasn't loaded yet (issue #50).
         for (ServerPlayer player : PlayerTracker.getInstance().getPlayers()) {
-            if (player.level() == level) {
+            if (player.level == level) {
                 NetworkHandler.sendLODData(player, chunk);
             }
         }

@@ -16,7 +16,7 @@ import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.chunk.ChunkStatus;
 
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -79,6 +79,17 @@ public final class ChunkGenerationManager {
     // c2me compatibility - queue ticket operations to process at safe time
     private record TicketOp(ServerLevel level, ChunkPos pos, boolean add) {}
     private final ConcurrentLinkedQueue<TicketOp> pendingTicketOps = new ConcurrentLinkedQueue<>();
+    // Tasks that MUST run on the server main thread. We do NOT use server.execute()/submit() for these:
+    // MinecraftServer.execute() runs the task INLINE on the calling (worker) thread whenever
+    // scheduleExecutables() is false (which it is during world load). That caused worker-thread mutation
+    // of the DistanceManager ticket maps (non-thread-safe fastutil) -> "Index -1" corruption that also
+    // cascaded into MC's font glyph cache. Instead we enqueue here and drain in tick() on the server thread.
+    private final ConcurrentLinkedQueue<Runnable> mainThreadTasks = new ConcurrentLinkedQueue<>();
+
+    private void runOnServerThread(Runnable task) {
+        mainThreadTasks.add(task);
+    }
+
 
     private ChunkGenerationManager() {}
     
@@ -182,7 +193,7 @@ public final class ChunkGenerationManager {
                 
                 // try to find work around any player in their respective dimension
                 for (ServerPlayer player : players) {
-                    DimensionState ds = getOrSetupState((ServerLevel) player.level());
+                    DimensionState ds = getOrSetupState((ServerLevel) player.level);
                     int radius = ds.tellusActive ? Math.max(Config.DATA.generationRadius, 128) : Config.DATA.generationRadius;
                     batch = ds.distanceGraph.findWork(player.chunkPosition(), radius, ds.trackedBatches);
                     if (batch != null) {
@@ -198,7 +209,7 @@ public final class ChunkGenerationManager {
                         var synced = PlayerTracker.getInstance().getSyncedChunks(player.getUUID());
                         if (synced == null) continue;
                         
-                        DimensionState ds = getOrSetupState((ServerLevel) player.level());
+                        DimensionState ds = getOrSetupState((ServerLevel) player.level);
                         int radius = ds.tellusActive ? Math.max(Config.DATA.generationRadius, 128) : Config.DATA.generationRadius;
                         List<ChunkPos> syncBatch = new ArrayList<>();
                         ds.distanceGraph.collectCompletedInRange(player.chunkPosition(), radius, synced, syncBatch, 64);
@@ -213,7 +224,7 @@ public final class ChunkGenerationManager {
                             for (ChunkPos syncPos : finalSyncBatch) {
                                 synced.add(syncPos.toLong());
                             }
-                            server.execute(() -> {
+                            runOnServerThread(() -> {
                                 ServerPlayer p = server.getPlayerList().getPlayer(playerUUID);
                                 if (p != null) {
                                     for (ChunkPos syncPos : finalSyncBatch) {
@@ -302,7 +313,7 @@ public final class ChunkGenerationManager {
                 }
 
                 if (!readyToGenerate.isEmpty()) {
-                    server.execute(() -> {
+                    runOnServerThread(() -> {
                         ServerChunkCache cache = finalState.level.getChunkSource();
                         List<ChunkPos> actuallyGenerate = new ArrayList<>();
                         
@@ -328,7 +339,7 @@ public final class ChunkGenerationManager {
                             for (ChunkPos pos : actuallyGenerate) {
                                 ((ServerChunkCacheMixin) cache).invokeGetChunkFutureMainThread(pos.x, pos.z, ChunkStatus.FULL, true)
                                     .whenCompleteAsync((result, throwable) -> {
-                                        if (throwable == null && result != null && result.isSuccess() && result.orElse(null) instanceof LevelChunk chunk) {
+                                        if (throwable == null && result != null && result.left().orElse(null) instanceof LevelChunk chunk) {
                                             onSuccess(finalState, pos);
                                             if (!chunk.isEmpty()) {
                                                 VoxyIntegration.ingestChunk(chunk);
@@ -356,7 +367,13 @@ public final class ChunkGenerationManager {
 
     public void tick() {
         if (!running.get() || server == null) return;
-        
+
+        // Drain server-thread tasks queued by the worker (ticket ops + chunk-future requests).
+        Runnable mt;
+        while ((mt = mainThreadTasks.poll()) != null) {
+            try { mt.run(); } catch (Exception e) { com.ethan.voxyworldgenv2.VoxyWorldGenV2.LOGGER.error("main-thread task error", e); }
+        }
+
         processPendingTickets();
         
         if (configReloadScheduled.compareAndSet(true, false)) {
@@ -372,7 +389,7 @@ public final class ChunkGenerationManager {
         // broadcast changes for all active dimensions
         Set<ServerLevel> activeLevels = new HashSet<>();
         for (ServerPlayer player : PlayerTracker.getInstance().getPlayers()) {
-            activeLevels.add((ServerLevel) player.level());
+            activeLevels.add((ServerLevel) player.level);
         }
         for (ServerLevel level : activeLevels) {
             ChunkUpdateTracker.getInstance().processDirty(level);
@@ -392,7 +409,7 @@ public final class ChunkGenerationManager {
         Map<ServerLevel, Integer> levelCounts = new HashMap<>();
         
         for (ServerPlayer player : players) {
-            levelCounts.merge((ServerLevel) player.level(), 1, Integer::sum);
+            levelCounts.merge((ServerLevel) player.level, 1, Integer::sum);
             ChunkPos currentPos = player.chunkPosition();
             ChunkPos lastPos = lastPlayerPositions.get(player.getUUID());
             
@@ -471,7 +488,7 @@ public final class ChunkGenerationManager {
         
         java.util.Map<DimensionState, Integer> maxCounts = new java.util.HashMap<>();
         for (ServerPlayer player : players) {
-            DimensionState state = getOrSetupState((ServerLevel) player.level());
+            DimensionState state = getOrSetupState((ServerLevel) player.level);
             int radius = state.tellusActive ? Math.max(Config.DATA.generationRadius, 128) : Config.DATA.generationRadius;
             int missing = state.distanceGraph.countMissingInRange(player.chunkPosition(), radius);
             maxCounts.merge(state, missing, Math::max);
@@ -495,9 +512,9 @@ public final class ChunkGenerationManager {
         while ((op = pendingTicketOps.poll()) != null) {
             ServerChunkCache cache = op.level().getChunkSource();
             if (op.add()) {
-                cache.addTicketWithRadius(TicketType.FORCED, op.pos(), 0);
+                cache.addRegionTicket(TicketType.FORCED, op.pos(), 1, op.pos());
             } else {
-                cache.removeTicketWithRadius(TicketType.FORCED, op.pos(), 0);
+                cache.removeRegionTicket(TicketType.FORCED, op.pos(), 1, op.pos());
             }
             modifiedLevels.add(op.level());
         }
@@ -516,7 +533,7 @@ public final class ChunkGenerationManager {
     
     private void cleanupTask(ServerLevel level, ChunkPos pos) {
         queueTicketRemove(level, pos);
-        ((MinecraftServerAccess) server).setEmptyTicks(0);
+        // setEmptyTicks(0): no MinecraftServer.emptyTicks field on MC 1.18.2 (idle-pause counter added later); omitted.
         DimensionState state = dimensionStates.get(level.dimension());
         if (state != null) completeTask(state, pos);
     }

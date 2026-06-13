@@ -3,32 +3,33 @@ package com.ethan.voxyworldgenv2.client;
 import com.ethan.voxyworldgenv2.core.ChunkGenerationManager;
 import com.ethan.voxyworldgenv2.integration.VoxyIntegration;
 import com.ethan.voxyworldgenv2.stats.GenerationStats;
-import net.minecraft.client.DeltaTracker;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.GuiComponent;
 
 public final class DebugRenderer {
-    
+
     private DebugRenderer() {}
-    
-    public static void render(GuiGraphics graphics, DeltaTracker tickDelta) {
+
+    // MC 1.18.2 HudRenderCallback: onHudRender(PoseStack, float tickDelta).
+    public static void render(PoseStack poseStack, float tickDelta) {
         if (!com.ethan.voxyworldgenv2.core.Config.DATA.showF3MenuStats) return;
-        
+
         Minecraft mc = Minecraft.getInstance();
-        
-        if (!mc.getDebugOverlay().showDebugScreen()) {
+
+        if (!mc.options.renderDebug) {
             return;
         }
-        
+
         Font font = mc.font;
         int screenWidth = mc.getWindow().getGuiScaledWidth();
         int screenHeight = mc.getWindow().getGuiScaledHeight();
         int lineHeight = font.lineHeight + 2;
-        
+
         ChunkGenerationManager manager = ChunkGenerationManager.getInstance();
         GenerationStats stats = manager.getStats();
-        
+
         double rate = stats.getChunksPerSecond();
         int remaining = manager.getRemainingInRadius();
         String eta = "--";
@@ -44,7 +45,7 @@ public final class DebugRenderer {
         } else if (remaining == 0) {
             eta = "done";
         }
-        
+
         String status;
         if (manager.isThrottled()) {
             status = "§cthrottled (low tps)";
@@ -53,12 +54,12 @@ public final class DebugRenderer {
         } else {
             status = "§arunning";
         }
-        
+
         boolean isLocal = mc.getSingleplayerServer() != null;
         boolean isVoxyServer = com.ethan.voxyworldgenv2.network.NetworkState.isServerConnected();
-        
+
         java.util.List<String> lineList = new java.util.ArrayList<>();
-        
+
         if (isLocal) {
             // SINGLEPLAYER
             lineList.add("§6[voxy worldgen v2] " + status);
@@ -82,27 +83,27 @@ public final class DebugRenderer {
             lineList.add("§6[voxy worldgen v2] §7voxy-server: §coffline");
             lineList.add("§7voxy: " + (VoxyIntegration.isVoxyAvailable() ? "§aenabled" : "§cdisabled"));
         }
-        
+
         String[] lines = lineList.toArray(new String[0]);
-        
+
         int y = screenHeight - (lines.length * lineHeight) - 4;
-        
+
         int maxWidth = 0;
         for (String line : lines) {
             maxWidth = Math.max(maxWidth, font.width(line));
         }
-        
+
         for (String line : lines) {
             int x = screenWidth - font.width(line) - 4;
             int bgX = screenWidth - maxWidth - 6;
-            
-            graphics.fill(bgX, y - 1, screenWidth - 2, y + font.lineHeight, 0x90505050);
-            graphics.drawString(font, line, x, y, 0xFFFFFFFF, false);
-            
+
+            GuiComponent.fill(poseStack, bgX, y - 1, screenWidth - 2, y + font.lineHeight, 0x90505050);
+            font.draw(poseStack, line, x, y, 0xFFFFFFFF);
+
             y += lineHeight;
         }
     }
-    
+
     private static String formatNumber(long number) {
         if (number >= 1_000_000) {
             return String.format("%.1fM", number / 1_000_000.0);
