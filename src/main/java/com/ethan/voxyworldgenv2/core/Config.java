@@ -55,5 +55,8 @@ public final class Config {
         public int update_interval = 20; // legacy field for Compat
         public int maxQueueSize = 20000;
         public int maxActiveTasks = 20;
+        public int syncBatchSize = 2;
+        public int syncIntervalMs = 500;
+        public int maxActiveSyncLoads = 4;
     }
 }

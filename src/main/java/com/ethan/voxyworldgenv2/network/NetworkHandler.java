@@ -63,14 +63,11 @@ public class NetworkHandler {
         VoxyWorldGenV2.LOGGER.info("voxy networking initialized");
     }
 
-    private static void setSyncedState(ServerPlayer player, ChunkPos pos, boolean isSynced) {
-        var synced = PlayerTracker.getInstance().getSyncedChunks(player.getUUID());
-        if (synced != null) {
-            if (isSynced) {
-                synced.add(pos.toLong());
-            } else {
-                synced.remove(pos.toLong());
-            }
+    private static void setSyncedState(ServerPlayer player, ResourceKey<Level> dimension, ChunkPos pos, boolean isSynced) {
+        if (isSynced) {
+            PlayerTracker.getInstance().markSynced(player.getUUID(), dimension, pos.toLong());
+        } else {
+            PlayerTracker.getInstance().markUnsynced(player.getUUID(), dimension, pos.toLong());
         }
     }
 
@@ -88,11 +85,12 @@ public class NetworkHandler {
             double dz = player.getZ() - (pos.getMiddleBlockZ());
 
             if (player.getLevel() != chunk.getLevel() || (dx * dx + dz * dz > maxDistSq)) {
-                setSyncedState(player, pos, false);
+                setSyncedState(player, chunk.getLevel().dimension(), pos, false);
                 continue;
             }
 
             sendSectionsInBatches(player, chunk.getLevel().dimension(), pos, minY, sections);
+            setSyncedState(player, chunk.getLevel().dimension(), pos, true);
         }
     }
 
@@ -102,12 +100,12 @@ public class NetworkHandler {
         List<SectionData> sections = buildSections(chunk);
 
         if (sections.isEmpty()) {
-            setSyncedState(player, pos, false);
+            setSyncedState(player, chunk.getLevel().dimension(), pos, true);
             return;
         }
 
         sendSectionsInBatches(player, chunk.getLevel().dimension(), pos, minY, sections);
-        setSyncedState(player, pos, true);
+        setSyncedState(player, chunk.getLevel().dimension(), pos, true);
     }
 
     private static List<SectionData> buildSections(LevelChunk chunk) {

@@ -21,17 +21,19 @@ public final class ServerEventHandler {
     
     public static void onServerStopping(MinecraftServer server) {
         VoxyWorldGenV2.LOGGER.info("server stopping, shutting down manager");
+        PlayerTracker.getInstance().saveAll(server);
         ChunkGenerationManager.getInstance().shutdown();
         PlayerTracker.getInstance().clear();
     }
     
     public static void onPlayerJoin(ServerGamePacketListenerImpl handler, PacketSender sender, MinecraftServer server) {
-        PlayerTracker.getInstance().addPlayer(handler.getPlayer());
+        PlayerTracker.getInstance().addPlayer(handler.getPlayer(), server);
         com.ethan.voxyworldgenv2.network.NetworkHandler.sendHandshake(handler.getPlayer());
     }
     
     public static void onPlayerDisconnect(ServerGamePacketListenerImpl handler, MinecraftServer server) {
-        PlayerTracker.getInstance().removePlayer(handler.getPlayer());
+        ChunkGenerationManager.getInstance().onPlayerDisconnected(handler.getPlayer().getUUID());
+        PlayerTracker.getInstance().removePlayer(handler.getPlayer(), server);
     }
     
     public static void onServerTick(MinecraftServer server) {
@@ -39,6 +41,7 @@ public final class ServerEventHandler {
     }
 
     public static void onChunkLoad(ServerLevel level, LevelChunk chunk) {
+        ChunkGenerationManager.getInstance().recordLoadedChunk(level, chunk);
         // re-ingest the freshly-loaded chunk so Voxy receives biome data with correct
         // neighbor context (fixes hard snow/biome blend edges on new worlds, issue #40).
         // also handles syncing pre-generated chunks that couldn't be sent at generation
