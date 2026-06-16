@@ -124,6 +124,10 @@ public final class ChunkGenerationManager {
                 VoxyWorldGenV2.LOGGER.info("tellus world detected for {}, enabling fast generation", state.level.dimension());
             }
             ChunkPersistence.load(state.level, state.level.dimension(), state.completedChunks);
+            int scanned = RegionChunkScanner.addExistingChunks(state.level, state.completedChunks);
+            if (scanned > 0) {
+                VoxyWorldGenV2.LOGGER.info("found {} existing region chunks for {}", scanned, state.level.dimension());
+            }
             synchronized (state.completedChunks) {
                 var iterator = state.completedChunks.iterator();
                 while (iterator.hasNext()) {

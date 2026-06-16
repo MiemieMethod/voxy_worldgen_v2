@@ -1,5 +1,9 @@
 # Voxy World Gen V2
 
+This repository is a Minecraft 1.18.2 port of Voxy World Gen V2.
+
+It is adapted for the Minecraft 1.18.2 port of [Voxy](https://github.com/MiemieMethod/voxy).
+
 ![Logo](src/main/resources/logo.png)
 
 This is a rewrite of my old Voxy World Gen mod, this mod is NOT a fork of the passive chunk generator mod and instead is a entirely different mod.
